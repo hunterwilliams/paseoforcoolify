@@ -1,0 +1,83 @@
+# Paseo daemon on a private Tailscale network.
+# The tailscale service joins your tailnet and proxies HTTPS to paseo over the
+# stack's internal Docker network. No ports are published on the host.
+
+services:
+  tailscale:
+    image: tailscale/tailscale:${TAILSCALE_VERSION:-stable}
+    hostname: ${TS_HOSTNAME:-paseo}
+    restart: unless-stopped
+    environment:
+      - TS_AUTHKEY=${TS_AUTHKEY:?Tailscale auth key required}
+      - TS_HOSTNAME=${TS_HOSTNAME:-paseo}
+      - TS_STATE_DIR=/var/lib/tailscale
+      # Userspace networking: no /dev/net/tun or extra capabilities needed.
+      - TS_USERSPACE=true
+      # HTTPS at https://<TS_HOSTNAME>.<tailnet>.ts.net, proxied to Paseo.
+      - TS_SERVE_CONFIG=/config/serve.json
+      # For Headscale: --login-server=https://headscale.example.com
+      - TS_EXTRA_ARGS=${TS_EXTRA_ARGS:-}
+    volumes:
+      - tailscale-state:/var/lib/tailscale
+      - ./tailscale/serve.json:/config/serve.json:ro
+
+  # One-shot: writes the global git identity into the home volume, then exits.
+  # A per-repo `git config user.email` still overrides it.
+  git-config:
+    image: ghcr.io/getpaseo/paseo:${PASEO_VERSION:-0.11.4}
+    user: root
+    restart: "no"
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        set -e
+        f=/home/paseo/.gitconfig
+        touch "$$f"
+        if [ -n "$$GIT_NAME" ]; then git config --file "$$f" user.name "$$GIT_NAME"; fi
+        if [ -n "$$GIT_EMAIL" ]; then git config --file "$$f" user.email "$$GIT_EMAIL"; fi
+        chown 1000:1000 "$$f"
+    environment:
+      - GIT_NAME=${GIT_NAME:-}
+      - GIT_EMAIL=${GIT_EMAIL:-}
+    volumes:
+      - paseo-home:/home/paseo
+
+  paseo:
+    image: ghcr.io/getpaseo/paseo:${PASEO_VERSION:-0.11.4}
+    restart: unless-stopped
+    depends_on:
+      git-config:
+        condition: service_completed_successfully
+    environment:
+      # Coolify generates this on first deploy. Outside Coolify, set it in .env.
+      - PASEO_PASSWORD=${SERVICE_PASSWORD_PASEO}
+      # Accept requests for the tailnet name (paseo.<tailnet>.ts.net).
+      - PASEO_HOSTNAMES=.ts.net
+      # Trust X-Forwarded-* from the tailscale proxy on the internal network.
+      - PASEO_TRUSTED_PROXIES=loopback,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16
+      # Optional: also allow pairing through Paseo's hosted relay.
+      - PASEO_RELAY_ENABLED=${PASEO_RELAY_ENABLED:-false}
+      # Agent CLIs are installed into the persistent home volume (see README).
+      - PATH=/home/paseo/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+      # Timezone for schedules and logs, e.g. Asia/Bangkok.
+      - TZ=${TZ:-UTC}
+      # Provider API keys for Pi. Leave unused ones empty.
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
+    volumes:
+      # Paseo state, agent CLIs, agent logins and credentials. Treat as sensitive.
+      - paseo-home:/home/paseo
+      # Repositories the agents can read and write.
+      - workspace:/workspace
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:6767/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+volumes:
+  tailscale-state:
+  paseo-home:
+  workspace:
