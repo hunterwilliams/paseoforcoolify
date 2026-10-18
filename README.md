@@ -67,15 +67,39 @@ su paseo -s /bin/sh -c "cd /workspace && PATH='$PATH' pi"
 
 The credential is saved in the `paseo-home` volume. Check your provider's terms before using a consumer subscription through a third-party agent.
 
-## Repositories
+## GitHub access
 
-Clone repos into `/workspace`:
+Paseo uses the GitHub CLI (`gh`) for cloning and pull requests. The image doesn't include it.
+
+**Install `gh`.** In the `paseo` container terminal, as root (no `su`):
 
 ```sh
-su paseo -s /bin/sh -c "PATH='$PATH' git clone https://github.com/you/repo.git /workspace/repo"
+apt-get update && apt-get install -y gh
 ```
 
-Then add `/workspace/repo` as a project in the Paseo app. For private repos and pushing, use a deploy key or a fine-grained token scoped to that repo, not your personal credentials.
+This installs into the container itself, not a volume, so it is lost when the container is recreated (a redeploy or image update). Rerun it after each redeploy.
+
+**Use a dedicated GitHub account.** Agents can read any credential in the container, so don't use your personal account. Create a separate account, invite it with **Write** access to each repo it should work on, then create a classic token on it with the `repo` scope (**Settings → Developer settings → Personal access tokens → Tokens (classic)**). One account works across repos with different owners; a fine-grained token can't. If an organization uses SAML single sign-on, authorize the token for it under **Configure SSO**.
+
+**Log in and switch git to HTTPS**, as the `paseo` user:
+
+```sh
+su paseo -s /bin/sh -c 'gh auth login --with-token && gh auth setup-git'
+```
+
+Paste the token, press **Enter**, then **Ctrl+D**. Then make every GitHub address use HTTPS, so clones use the token instead of a missing SSH key:
+
+```sh
+su paseo -s /bin/sh -c 'git config --global url."https://github.com/".insteadOf "git@github.com:" && gh config set git_protocol https'
+```
+
+The login and git settings are stored in the `paseo-home` volume and survive redeploys.
+
+**If `gh` reports `permission denied` on its config**, a command was run as root and created files in the `paseo` home folder. Fix ownership with `chown -R 1000:1000 /home/paseo`, then repeat the login.
+
+## Repositories
+
+Add repositories from the Paseo app. It clones them into `/home/paseo/dev`, inside the persistent `paseo-home` volume.
 
 ## Updating
 
