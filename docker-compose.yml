@@ -14,12 +14,19 @@ services:
       # Userspace networking: no /dev/net/tun or extra capabilities needed.
       - TS_USERSPACE=true
       # HTTPS at https://<TS_HOSTNAME>.<tailnet>.ts.net, proxied to Paseo.
-      - TS_SERVE_CONFIG=/config/serve.json
+      # The file is written by the entrypoint below.
+      - TS_SERVE_CONFIG=/tmp/serve.json
       # For Headscale: --login-server=https://headscale.example.com
       - TS_EXTRA_ARGS=${TS_EXTRA_ARGS:-}
+    # Write the Serve config, then start Tailscale's normal entrypoint.
+    # Generated here because Coolify does not mount files from the repo.
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >-
+        printf '%s' '{"TCP":{"443":{"HTTPS":true}},"Web":{"$${TS_CERT_DOMAIN}:443":{"Handlers":{"/":{"Proxy":"http://paseo:6767"}}}}}'
+        > /tmp/serve.json && exec /usr/local/bin/containerboot
     volumes:
       - tailscale-state:/var/lib/tailscale
-      - ./tailscale/serve.json:/config/serve.json:ro
 
   # One-shot: writes the global git identity into the home volume, then exits.
   # A per-repo `git config user.email` still overrides it.
@@ -71,7 +78,13 @@ services:
       # Repositories the agents can read and write.
       - workspace:/workspace
     healthcheck:
-      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:6767/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:6767/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
       interval: 30s
       timeout: 5s
       retries: 3

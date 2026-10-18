@@ -9,7 +9,6 @@ A Tailscale container joins your tailnet and proxies HTTPS to the official Paseo
 | File | Purpose |
 |---|---|
 | `docker-compose.yml` | Tailscale sidecar and Paseo |
-| `tailscale/serve.json` | Tailscale Serve config: HTTPS on 443, proxied to Paseo |
 | `.env.example` | Variables for running outside Coolify |
 
 ## Before you deploy
