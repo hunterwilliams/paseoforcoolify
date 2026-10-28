@@ -27,7 +27,8 @@ services:
     volumes:
       - tailscale-state:/var/lib/tailscale
 
-  # One-shot: writes the global git identity into the home volume, then exits.
+  # One-shot: writes the global git identity into the home volume, repairs
+  # ownership of anything a root shell left in it, then exits.
   # A per-repo `git config user.email` still overrides it.
   git-config:
     image: ghcr.io/getpaseo/paseo:${PASEO_VERSION:-0.11.4}
@@ -41,7 +42,9 @@ services:
         touch "$$f"
         if [ -n "$$GIT_NAME" ]; then git config --file "$$f" user.name "$$GIT_NAME"; fi
         if [ -n "$$GIT_EMAIL" ]; then git config --file "$$f" user.email "$$GIT_EMAIL"; fi
-        chown 1000:1000 "$$f"
+        # Files created as root (e.g. from Coolify's root terminal) make the
+        # daemon fail with EACCES. Only touches files not already owned by 1000.
+        find /home/paseo \! -uid 1000 -exec chown -h 1000:1000 {} +
     environment:
       - GIT_NAME=${GIT_NAME:-}
       - GIT_EMAIL=${GIT_EMAIL:-}

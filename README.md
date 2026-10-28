@@ -95,7 +95,7 @@ su paseo -s /bin/sh -c 'git config --global url."https://github.com/".insteadOf 
 
 The login and git settings are stored in the `paseo-home` volume and survive redeploys.
 
-**If `gh` reports `permission denied` on its config**, a command was run as root and created files in the `paseo` home folder. Fix ownership with `chown -R 1000:1000 /home/paseo`, then repeat the login.
+**If `gh` or Paseo reports `permission denied` (`EACCES`)**, a command was run as root and created files in the `paseo` home folder. Click **Redeploy** in Coolify: the `git-config` container resets ownership before Paseo starts. Then repeat the login if needed.
 
 ## Repositories
 
